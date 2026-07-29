@@ -161,6 +161,19 @@ describe('WellKnownProvider', () => {
   });
 
   describe('fetchAllSkills', () => {
+    it('bounds well-known discovery with a shared timeout signal', async () => {
+      const signal = AbortSignal.abort(new DOMException('timed out', 'TimeoutError'));
+      const timeoutSpy = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(signal);
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+        expect(init?.signal).toBe(signal);
+        throw signal.reason;
+      });
+
+      await expect(provider.fetchAllSkills('https://example.com/download')).resolves.toEqual([]);
+      expect(timeoutSpy).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+
     it('keeps supporting legacy files[] indexes', async () => {
       vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
         const href = String(url);

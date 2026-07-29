@@ -7,6 +7,7 @@ import type { HostProvider, ProviderMatch, RemoteSkill } from './types.ts';
 const DISCOVERY_SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
 const MAX_ARCHIVE_UNPACKED_BYTES = 50 * 1024 * 1024;
 const MAX_ARCHIVE_FILES = 1000;
+const DISCOVERY_TIMEOUT_MS = 10_000;
 
 /**
  * Legacy index.json structure for well-known skills.
@@ -159,6 +160,7 @@ export class WellKnownProvider implements HostProvider {
     try {
       const parsed = new URL(baseUrl);
       const basePath = parsed.pathname.replace(/\/$/, '');
+      const signal = AbortSignal.timeout(DISCOVERY_TIMEOUT_MS);
 
       const urlsToTry: Array<{
         indexUrl: string;
@@ -192,7 +194,7 @@ export class WellKnownProvider implements HostProvider {
 
       for (const { indexUrl, baseUrl: resolvedBase, wellKnownPath } of urlsToTry) {
         try {
-          const response = await fetch(indexUrl);
+          const response = await fetch(indexUrl, { signal });
           if (!response.ok) continue;
 
           const rawIndex = (await response.json()) as unknown;
