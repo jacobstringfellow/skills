@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, normalize, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as tar from 'tar';
-import yauzl from 'yauzl';
+import { ArchiveValidationError, readZipArchive } from './archive.ts';
 import { parseFrontmatter } from './frontmatter.ts';
 
 const DEFAULT_DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024;
@@ -21,13 +21,6 @@ interface DownloadLimits {
 interface ExtractState {
   bytes: number;
   entries: number;
-}
-
-class ArchiveValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'ArchiveValidationError';
-  }
 }
 
 export interface DownloadedSource {
@@ -138,90 +131,24 @@ async function isValidSkillMarkdown(filePath: string): Promise<boolean> {
   }
 }
 
-function openZip(filePath: string): Promise<yauzl.ZipFile> {
-  return new Promise((resolvePromise, reject) => {
-    yauzl.open(filePath, { lazyEntries: true, validateEntrySizes: true }, (error, zipFile) => {
-      if (error || !zipFile) {
-        reject(error ?? new Error('Invalid zip archive'));
-        return;
-      }
-      resolvePromise(zipFile);
-    });
-  });
-}
-
-function isZipPathValidationError(error: unknown): boolean {
-  if (!(error instanceof Error)) return false;
-  return /invalid (?:relative|absolute) path/i.test(error.message);
-}
-
-function openZipReadStream(
-  zipFile: yauzl.ZipFile,
-  entry: yauzl.Entry
-): Promise<NodeJS.ReadableStream> {
-  return new Promise((resolvePromise, reject) => {
-    zipFile.openReadStream(entry, (error, readStream) => {
-      if (error || !readStream) {
-        reject(error ?? new Error('Failed to read zip entry'));
-        return;
-      }
-      resolvePromise(readStream);
-    });
-  });
-}
-
 async function extractZip(
   filePath: string,
   extractDir: string,
   limits: DownloadLimits
 ): Promise<void> {
-  const zipFile = await openZip(filePath);
-  const state: ExtractState = { bytes: 0, entries: 0 };
+  const files = readZipArchive(await readFile(filePath), {
+    maxExtractedBytes: limits.extractMaxBytes,
+    maxEntries: limits.extractMaxFiles,
+  });
 
-  try {
-    await new Promise<void>((resolvePromise, reject) => {
-      zipFile.on('error', (error) => {
-        reject(
-          isZipPathValidationError(error)
-            ? new ArchiveValidationError(`Archive contains unsafe path: ${error.message}`)
-            : error
-        );
-      });
-      zipFile.on('end', resolvePromise);
-      zipFile.on('entry', (entry: yauzl.Entry) => {
-        void (async () => {
-          const safePath = validateArchivePath(entry.fileName);
-          if (safePath === null) {
-            throw new ArchiveValidationError(`Archive contains unsafe path: ${entry.fileName}`);
-          }
+  for (const [path, contents] of files) {
+    const targetPath = join(extractDir, path);
+    if (!isPathSafe(extractDir, targetPath)) {
+      throw new ArchiveValidationError(`Archive contains unsafe path: ${path}`);
+    }
 
-          incrementEntry(state, entry.uncompressedSize, limits);
-
-          if (!safePath || /\/$/.test(safePath)) {
-            zipFile.readEntry();
-            return;
-          }
-
-          if (/\/$/.test(entry.fileName)) {
-            zipFile.readEntry();
-            return;
-          }
-
-          const targetPath = join(extractDir, safePath);
-          if (!isPathSafe(extractDir, targetPath)) {
-            throw new ArchiveValidationError(`Archive contains unsafe path: ${entry.fileName}`);
-          }
-
-          await mkdir(dirname(targetPath), { recursive: true });
-          const readStream = await openZipReadStream(zipFile, entry);
-          await pipeline(readStream, createWriteStream(targetPath));
-          zipFile.readEntry();
-        })().catch(reject);
-      });
-      zipFile.readEntry();
-    });
-  } finally {
-    zipFile.close();
+    await mkdir(dirname(targetPath), { recursive: true });
+    await writeFile(targetPath, contents);
   }
 }
 

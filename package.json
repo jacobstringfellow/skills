@@ -1,6 +1,6 @@
 {
   "name": "skills",
-  "version": "1.5.20",
+  "version": "1.5.21",
   "description": "The open agent skills ecosystem",
   "type": "module",
   "bin": {
@@ -126,7 +126,6 @@
     "@clack/prompts": "^1.2.0",
     "@types/bun": "latest",
     "@types/node": "^22.10.0",
-    "@types/yauzl": "^3.4.0",
     "@vercel/detect-agent": "^1.2.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
@@ -144,7 +143,6 @@
   "packageManager": "pnpm@10.17.1",
   "dependencies": {
     "tar": "^7.5.20",
-    "yaml": "^2.8.3",
-    "yauzl": "^3.4.0"
+    "yaml": "^2.8.3"
   }
 }

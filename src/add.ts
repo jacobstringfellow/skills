@@ -894,6 +894,7 @@ async function handleWellKnownSkills(
       agents: targetAgents.join(','),
       ...(installGlobally && { global: '1' }),
       skillFiles: JSON.stringify(skillFiles),
+      installUrl: url,
       metadata: options.metadata,
       sourceType: 'well-known',
     });

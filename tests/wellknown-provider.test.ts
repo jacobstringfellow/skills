@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { WellKnownProvider } from '../src/providers/wellknown.ts';
+import { createZip } from './fixtures/zip.ts';
 
 const SCHEMA_V2 = 'https://schemas.agentskills.io/discovery/0.2.0/schema.json';
 
@@ -327,6 +328,47 @@ describe('WellKnownProvider', () => {
       const skills = await provider.fetchAllSkills('https://example.com');
       expect(skills).toHaveLength(1);
       expect(skills[0]!.installName).toBe('archive-skill');
+      expect(skills[0]!.files.has('SKILL.md')).toBe(true);
+      expect(skills[0]!.files.has('references/README.md')).toBe(true);
+    });
+
+    it('supports v0.2.0 zip archive entries through the shared archive reader', async () => {
+      const archive = createZip([
+        {
+          path: 'SKILL.md',
+          contents: '---\nname: zip-skill\ndescription: Zip skill.\n---\n# Zip',
+        },
+        {
+          path: 'references/README.md',
+          contents: 'Reference',
+        },
+      ]);
+
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
+        const href = String(url);
+        if (href === 'https://example.com/.well-known/agent-skills/index.json') {
+          return response({
+            $schema: SCHEMA_V2,
+            skills: [
+              {
+                name: 'zip-skill',
+                type: 'archive',
+                description: 'Zip skill.',
+                url: '/downloads/zip-skill.zip',
+                digest: digest(archive),
+              },
+            ],
+          });
+        }
+        if (href === 'https://example.com/downloads/zip-skill.zip') {
+          return response(archive, { headers: { 'content-type': 'application/zip' } });
+        }
+        return response('not found', { status: 404 });
+      });
+
+      const skills = await provider.fetchAllSkills('https://example.com');
+      expect(skills).toHaveLength(1);
+      expect(skills[0]!.installName).toBe('zip-skill');
       expect(skills[0]!.files.has('SKILL.md')).toBe(true);
       expect(skills[0]!.files.has('references/README.md')).toBe(true);
     });
