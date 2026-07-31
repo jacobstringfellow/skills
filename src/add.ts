@@ -33,7 +33,11 @@ import {
   type PartnerAudit,
 } from './telemetry.ts';
 import { detectAgent, getAgentType } from './detect-agent.ts';
-import { wellKnownProvider, type WellKnownSkill } from './providers/index.ts';
+import {
+  wellKnownProvider,
+  computeWellKnownSkillDigest,
+  type WellKnownSkill,
+} from './providers/index.ts';
 import { downloadSource } from './download-source.ts';
 import {
   addSkillToLock,
@@ -921,7 +925,9 @@ async function handleWellKnownSkills(
             source: sourceIdentifier,
             sourceType: 'well-known',
             sourceUrl: skill.sourceUrl,
-            skillFolderHash: '', // Well-known skills don't have a folder hash
+            skillFolderHash: '',
+            sourceBaseUrl: url,
+            wellKnownDigest: computeWellKnownSkillDigest(skill),
           });
         } catch {
           // Don't fail installation if lock file update fails
@@ -944,8 +950,10 @@ async function handleWellKnownSkills(
               skill.installName,
               {
                 source: sourceIdentifier,
+                sourceUrl: url,
                 sourceType: 'well-known',
                 computedHash,
+                wellKnownDigest: computeWellKnownSkillDigest(skill),
               },
               cwd
             );
