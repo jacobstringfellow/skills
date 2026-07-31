@@ -556,6 +556,16 @@ export interface AddOptions {
  * Discovers skills from /.well-known/agent-skills/index.json (preferred)
  * or /.well-known/skills/index.json (legacy fallback).
  */
+function isSkillsShPackUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./, '');
+    return hostname === 'skills.sh' && /^\/p\/[^/]+/.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
 async function handleWellKnownSkills(
   source: string,
   url: string,
@@ -640,6 +650,7 @@ async function handleWellKnownSkills(
     const selected = await multiselect({
       message: 'Select skills to install',
       options: skillChoices,
+      initialValues: isSkillsShPackUrl(url) ? skills : undefined,
       required: true,
     });
 
