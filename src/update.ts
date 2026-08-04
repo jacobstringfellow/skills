@@ -11,6 +11,7 @@ import {
   formatSourceInput,
   buildUpdateInstallSource,
   buildLocalUpdateSource,
+  buildLocalCloneSource,
   shouldUseFullDepthForUpdate,
 } from './update-source.ts';
 import { cloneRepo, cleanupTempDir } from './git.ts';
@@ -42,6 +43,18 @@ export interface UpdateCheckOptions {
   yes?: boolean;
   /** Optional skill name(s) to filter on (positional args) */
   skills?: string[];
+}
+
+/**
+ * Public GitHub lock entries use owner/repo shorthand to preserve the exact
+ * skill subpath. Pin that shorthand to github.com so an ambient GH_HOST for a
+ * GitHub Enterprise account cannot redirect an existing public installation.
+ */
+function getUpdateChildEnv(sourceType: string): NodeJS.ProcessEnv | undefined {
+  if (sourceType !== 'github') {
+    return undefined;
+  }
+  return { ...process.env, GH_HOST: 'github.com' };
 }
 
 export function parseUpdateOptions(args: string[]): UpdateCheckOptions {
@@ -677,10 +690,11 @@ export async function updateGlobalSkills(
     const fullDepthArgs = shouldUseFullDepthForUpdate(update.entry) ? ['--full-depth'] : [];
     const result = spawnSync(
       process.execPath,
-      [cliEntry, 'add', installUrl, ...fullDepthArgs, '-g', '-y'],
+      [cliEntry, 'add', installUrl, '--skill', update.name, ...fullDepthArgs, '-g', '-y'],
       {
         stdio: ['inherit', 'pipe', 'pipe'],
         encoding: 'utf-8',
+        env: getUpdateChildEnv(update.entry.sourceType),
         // Never spawn through a shell. process.execPath is an absolute path to the
         // node binary, so no shell is needed to resolve it. installUrl is derived
         // from the lock file (and ref is URL-decoded, so influenceable by whoever
@@ -808,7 +822,7 @@ export async function updateProjectSkills(
 
   for (const [source, skillsForSource] of bySource) {
     const firstEntry = skillsForSource[0]!.entry;
-    const sourceUrl = firstEntry.sourceUrl || firstEntry.source;
+    const cloneSource = buildLocalCloneSource(firstEntry);
     const ref = firstEntry.ref;
 
     const allLockedForSource = Object.entries(localLock.skills)
@@ -818,7 +832,7 @@ export async function updateProjectSkills(
     let tempDir: string | null = null;
     let deletedSkills: string[] = [];
 
-    if (buildLocalUpdateSource(firstEntry) === null) {
+    if (cloneSource === null) {
       failCount += skillsForSource.length;
       console.log(
         `${DIM}✗ Cannot update ${source}: skills-lock.json is missing sourceUrl for this generic Git source${RESET}`
@@ -827,7 +841,7 @@ export async function updateProjectSkills(
     }
 
     try {
-      tempDir = await cloneRepo(sourceUrl, ref);
+      tempDir = await cloneRepo(cloneSource, ref);
       const discovered = await discoverSkills(tempDir, undefined, { fullDepth: true });
 
       const discoveredPaths = discovered.map((s) => {
@@ -887,6 +901,7 @@ export async function updateProjectSkills(
         {
           stdio: ['inherit', 'pipe', 'pipe'],
           encoding: 'utf-8',
+          env: getUpdateChildEnv(skill.entry.sourceType),
           // Never spawn through a shell — same reasoning as updateGlobalSkills:
           // execPath is absolute (no shell resolution needed) and installUrl/ref
           // come from the lock file, so a shell would allow command injection on
